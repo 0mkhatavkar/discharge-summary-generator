@@ -1,0 +1,13 @@
+[SYNTHETIC TEST DATA - NOT A REAL PATIENT]
+
+Patient: Jane Doe   MRN: TEST-00123
+Collected: 14-Aug-2026 06:30
+
+Potassium: 5.2 mmol/L (HIGH - normal 3.5-5.0)
+Creatinine: 2.1 mg/dL (HIGH - normal 0.6-1.2)
+eGFR: 27 mL/min/1.73m2 (LOW - Stage 4 CKD range)
+BUN: 42 mg/dL (HIGH)
+Hemoglobin: 11.2 g/dL (LOW)
+
+Impression: Worsening renal function since baseline (Cr 1.6 -> 2.1).
+Recommend renal dosing review for all current medications.

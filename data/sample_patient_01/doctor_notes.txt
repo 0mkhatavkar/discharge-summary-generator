@@ -1,0 +1,17 @@
+[SYNTHETIC TEST DATA - NOT A REAL PATIENT]
+
+Patient: Jane Doe
+MRN: TEST-00123
+DOB: 14-Mar-1958
+Admission Date: 10-Aug-2026
+Discharge Date: 15-Aug-2026
+
+Admitting Diagnosis: Community-acquired pneumonia, right lower lobe
+Secondary Diagnosis: Acute-on-chronic kidney injury, CKD Stage 3b
+
+History: 68F with known CKD stage 3b presented with 3 days of fever,
+productive cough, and dyspnea. Chest X-ray confirmed RLL consolidation.
+Treated with IV antibiotics and supportive care. Baseline creatinine 1.6 mg/dL.
+
+Discharge Condition: Afebrile x 48h, O2 sat 96% on room air, tolerating oral intake.
+Follow-up: Nephrology in 2 weeks, PCP in 1 week.
