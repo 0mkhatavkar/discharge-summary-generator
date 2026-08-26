@@ -19,5 +19,13 @@ def call_llm(prompt: str, system: str = "") -> str:
     response = client.chat.completions(
         model="sarvam-105b",
         messages=messages,
+        reasoning_effort=None,  # skip the internal "thinking" trace -- we just want the JSON
+        max_tokens=2048,
     )
-    return response.choices[0].message.content
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError(
+            f"Sarvam returned no content (finish_reason={response.choices[0].finish_reason}). "
+            "Response may have been cut off -- try raising max_tokens."
+        )
+    return content
