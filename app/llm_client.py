@@ -10,7 +10,7 @@ if not api_key:
 
 client = SarvamAI(api_subscription_key=api_key)
 
-def call_llm(prompt: str, system: str = "") -> str:
+def call_llm(prompt: str, system: str = "", temperature: float = 0.2) -> str:
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -19,8 +19,9 @@ def call_llm(prompt: str, system: str = "") -> str:
     response = client.chat.completions(
         model="sarvam-105b",
         messages=messages,
-        reasoning_effort=None,  # skip the internal "thinking" trace -- we just want the JSON
+        reasoning_effort=None,
         max_tokens=2048,
+        temperature=temperature,
     )
     content = response.choices[0].message.content
     if content is None:

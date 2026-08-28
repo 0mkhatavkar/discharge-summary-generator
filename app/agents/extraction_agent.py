@@ -9,6 +9,8 @@ EXTRACTION_SYSTEM_PROMPT = (
 
 EXTRACTION_TEMPLATE = """Extract these fields from the clinical document below, as JSON.
 If a field isn't mentioned, use null (or an empty list for list fields). Do not invent values.
+Extract the actual clinical content, not field labels -- for example, if the text says
+"Admitting Diagnosis: pneumonia", extract "pneumonia", not "Admitting Diagnosis".
 
 Return exactly this structure:
 {{
@@ -25,8 +27,8 @@ Document:
 \"\"\"
 """
 
+
 def _parse_json_response(text: str) -> dict:
-    """LLMs sometimes wrap JSON in ```json fences despite instructions -- strip those."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned.lstrip("`")
@@ -36,8 +38,6 @@ def _parse_json_response(text: str) -> dict:
 
 
 def _flatten_list_field(items, dict_keys):
-    """The model sometimes returns list items as plain strings, sometimes as small
-    dicts -- normalize both into plain strings so downstream code has one shape to rely on."""
     flat = []
     for item in items or []:
         if isinstance(item, str):
@@ -50,14 +50,59 @@ def _flatten_list_field(items, dict_keys):
 
 
 def _coerce_lab_values(lab_values):
-    """Lab 'value' sometimes comes back as a string, sometimes a number --
-    normalize to float so reconciliation can compare thresholds reliably."""
     for lab in lab_values or []:
         try:
             lab["value"] = float(lab["value"])
         except (TypeError, ValueError):
-            pass  # keep as-is if it's not a clean number (e.g. "trace", "positive")
+            pass
     return lab_values
+
+
+def _has_junk(parsed: dict) -> bool:
+    """Empty strings in list fields, or an all-null medication entry, both mean
+    this extraction is low-quality and worth retrying."""
+    for field in ("diagnoses", "follow_up"):
+        if any(item == "" for item in (parsed.get(field) or [])):
+            return True
+    for med in parsed.get("medications") or []:
+        if isinstance(med, dict) and not any(med.values()):
+            return True
+    return False
+
+
+def _clean_extraction(parsed: dict) -> dict:
+    """Final safety net: strip any junk that survived even after a retry."""
+    parsed["diagnoses"] = [d for d in (parsed.get("diagnoses") or []) if d]
+    parsed["follow_up"] = [f for f in (parsed.get("follow_up") or []) if f]
+    parsed["medications"] = [m for m in (parsed.get("medications") or []) if isinstance(m, dict) and any(m.values())]
+    return parsed
+
+def _looks_incomplete(raw_text: str, parsed: dict) -> bool:
+    """If the source document clearly signals a section (e.g. contains the word
+    'follow-up') but we extracted nothing for that field, that's suspicious --
+    worth a retry rather than silently shipping a gap."""
+    FIELD_KEYWORDS = {
+        "diagnoses": ["diagnosis"],
+        "follow_up": ["follow-up", "follow up"],
+    }
+    text_lower = raw_text.lower()
+    for field, keywords in FIELD_KEYWORDS.items():
+        if any(kw in text_lower for kw in keywords) and not parsed.get(field):
+            return True
+    return False
+
+def _extract_one(raw_text: str) -> dict:
+    prompt = EXTRACTION_TEMPLATE.format(raw_text=raw_text)
+    parsed = {}
+    for attempt in range(2):  # retry once if the first pass looks low-quality
+        response_text = call_llm(prompt, system=EXTRACTION_SYSTEM_PROMPT, temperature=0.1)
+        parsed = _parse_json_response(response_text)
+        parsed["diagnoses"] = _flatten_list_field(parsed.get("diagnoses"), ["name", "type"])
+        parsed["follow_up"] = _flatten_list_field(parsed.get("follow_up"), ["provider", "timing"])
+        parsed["lab_values"] = _coerce_lab_values(parsed.get("lab_values"))
+        if not _has_junk(parsed) and not _looks_incomplete(raw_text, parsed):
+            break
+    return _clean_extraction(parsed)
 
 
 def _merge_extractions(parts: list) -> dict:
@@ -79,17 +124,7 @@ def run_extraction(state: dict) -> dict:
         state.get("lab_report_raw", ""),
         state.get("prescription_raw", ""),
     ]
-    parts = []
-    for raw_text in documents:
-        if not raw_text.strip():
-            continue
-        prompt = EXTRACTION_TEMPLATE.format(raw_text=raw_text)
-        response_text = call_llm(prompt, system=EXTRACTION_SYSTEM_PROMPT)
-        parsed = _parse_json_response(response_text)
-        parsed["diagnoses"] = _flatten_list_field(parsed.get("diagnoses"), ["name", "type"])
-        parsed["follow_up"] = _flatten_list_field(parsed.get("follow_up"), ["provider", "timing"])
-        parsed["lab_values"] = _coerce_lab_values(parsed.get("lab_values"))
-        parts.append(parsed)
+    parts = [_extract_one(raw_text) for raw_text in documents if raw_text.strip()]
     state["extracted_data"] = _merge_extractions(parts)
     return state
 
