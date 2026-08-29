@@ -11,13 +11,14 @@ EXTRACTION_TEMPLATE = """Extract these fields from the clinical document below, 
 If a field isn't mentioned, use null (or an empty list for list fields). Do not invent values.
 Extract the actual clinical content, not field labels -- for example, if the text says
 "Admitting Diagnosis: pneumonia", extract "pneumonia", not "Admitting Diagnosis".
+For each lab value, set "timing" to "baseline" if the text explicitly calls it a baseline or prior value, "current" if it's from a lab report or a recent result, or null if unclear.
 
 Return exactly this structure:
 {{
   "patient_info": {{"name": null, "mrn": null, "dob": null, "admission_date": null, "discharge_date": null}},
   "diagnoses": [],
   "medications": [{{"name": null, "dose": null, "frequency": null, "route": null}}],
-  "lab_values": [{{"test": null, "value": null, "unit": null, "flag": null}}],
+  "lab_values": [{{"test": null, "value": null, "unit": null, "flag": null, "timing": null}}],
   "follow_up": []
 }}
 
@@ -59,8 +60,6 @@ def _coerce_lab_values(lab_values):
 
 
 def _has_junk(parsed: dict) -> bool:
-    """Empty strings in list fields, or an all-null medication entry, both mean
-    this extraction is low-quality and worth retrying."""
     for field in ("diagnoses", "follow_up"):
         if any(item == "" for item in (parsed.get(field) or [])):
             return True
@@ -71,16 +70,13 @@ def _has_junk(parsed: dict) -> bool:
 
 
 def _clean_extraction(parsed: dict) -> dict:
-    """Final safety net: strip any junk that survived even after a retry."""
     parsed["diagnoses"] = [d for d in (parsed.get("diagnoses") or []) if d]
     parsed["follow_up"] = [f for f in (parsed.get("follow_up") or []) if f]
     parsed["medications"] = [m for m in (parsed.get("medications") or []) if isinstance(m, dict) and any(m.values())]
     return parsed
 
+
 def _looks_incomplete(raw_text: str, parsed: dict) -> bool:
-    """If the source document clearly signals a section (e.g. contains the word
-    'follow-up') but we extracted nothing for that field, that's suspicious --
-    worth a retry rather than silently shipping a gap."""
     FIELD_KEYWORDS = {
         "diagnoses": ["diagnosis"],
         "follow_up": ["follow-up", "follow up"],
@@ -91,10 +87,11 @@ def _looks_incomplete(raw_text: str, parsed: dict) -> bool:
             return True
     return False
 
+
 def _extract_one(raw_text: str) -> dict:
     prompt = EXTRACTION_TEMPLATE.format(raw_text=raw_text)
     parsed = {}
-    for attempt in range(2):  # retry once if the first pass looks low-quality
+    for attempt in range(2):
         response_text = call_llm(prompt, system=EXTRACTION_SYSTEM_PROMPT, temperature=0.1)
         parsed = _parse_json_response(response_text)
         parsed["diagnoses"] = _flatten_list_field(parsed.get("diagnoses"), ["name", "type"])

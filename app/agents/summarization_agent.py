@@ -42,6 +42,23 @@ def _format_conflicts_section(conflicts: list) -> str:
         )
     return "\n".join(lines)
 
+def _compute_lab_trends(lab_values: list) -> list:
+    """Find tests with both a baseline and current reading, compute direction
+    deterministically -- don't trust prose narration to get a numeric comparison right."""
+    by_test = {}
+    for lab in lab_values or []:
+        test = (lab.get("test") or "").lower().strip()
+        timing = lab.get("timing")
+        if timing in ("baseline", "current") and isinstance(lab.get("value"), (int, float)):
+            by_test.setdefault(test, {})[timing] = lab["value"]
+
+    trends = []
+    for test, values in by_test.items():
+        if "baseline" in values and "current" in values:
+            baseline, current = values["baseline"], values["current"]
+            direction = "worsened" if current > baseline else "improved" if current < baseline else "unchanged"
+            trends.append(f"{test.title()}: {baseline} -> {current} ({direction})")
+    return trends
 
 def run_summarization(state: dict) -> dict:
     extracted = state.get("extracted_data") or {}
@@ -55,7 +72,9 @@ def run_summarization(state: dict) -> dict:
         follow_up=extracted.get("follow_up", []),
     )
     narrative = call_llm(prompt, system=SUMMARY_SYSTEM_PROMPT)
-    state["discharge_summary"] = narrative.strip() + _format_conflicts_section(conflicts)
+    trends = _compute_lab_trends(extracted.get("lab_values"))
+    trends_section = "\n\nKey lab trends: " + "; ".join(trends) if trends else ""
+    state["discharge_summary"] = narrative.strip() + trends_section + _format_conflicts_section(conflicts)
     return state
 
 
