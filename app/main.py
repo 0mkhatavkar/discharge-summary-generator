@@ -8,7 +8,11 @@ app = FastAPI(title="Discharge Summary Generator")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://discharge-summary-generator-ten.vercel.app",
+        "https://discharge-summary-generator-4gic1m9s2-om-khatavkar.vercel.app",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
